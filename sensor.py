@@ -34,9 +34,9 @@ def sensor_debug(model, floor):
             #法線ベクトル　×　力の大きさを参考に接触点から伸びる直線を引いて視覚化する
             p.addUserDebugLine(start,
                                start + normal * force/100,
-                               lineColorRGB=[1., 0, 1.],
-                               lifeTime=0.1)
-            # p.addUserDebugPoints([start],
-            #                      pointColorsRGB=[[0., 1., 0.]],
-            #                      pointSize=10,
-            #                      lifeTime=0.1)
+                               lineColorRGB=[1., 0, 1.])
+                            #    lifeTime=0.1)
+            p.addUserDebugPoints([start],
+                                 pointColorsRGB=[[0., 1., 0.]],
+                                 pointSize=10)
+                                #  lifeTime=0.1)
