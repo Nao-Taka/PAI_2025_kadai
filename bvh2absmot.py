@@ -10,18 +10,13 @@ import bvhio
 
 class bvh2motion():
     '''
-    BVHファイルを関節角度21次元+体幹の傾き3次元に変形する
-    腰3軸
-    肩3軸 2
-    肘1軸 2
-    股関節3軸 2
-    膝1軸 2
-    足首2軸 2
-
-    体幹の向き3次元
+    BVHファイルを関節のクオータニオン+体幹の傾きクオータニオン(Y軸頭方向に対する傾き)に変換
+    両肩、ひじ、股関節、膝、足首の10x4次元と
+    Y軸に対する体の傾き4次元
+    合わせて44次元
 
     初期化で開くファイルパスを指示
-    get_motionで指定モーションの24次元ベクトルを返す
+    get_quaternionsで指定モーションの24次元ベクトルを返す
     '''
 
     joints_name = {'hip':0, 'abdomen':1, 'chest':2, 'neck':3, 'head':4, 
@@ -42,7 +37,16 @@ class bvh2motion():
         self.root = bvhio.readAsBvh(self.filepath)
         self.nFrame = self.root.FrameCount
 
-  
+    def get_quaternions(self,startIdx, endIdx):
+        '''
+        Start~Endまでの各フレームのクオータニオンを取得する
+        '''
+        startIdx = max(0,min(self.nFrame, startIdx))
+        endIdx = max(0,min(self.nFrame, endIdx))
+        ret = [self.convert_bvf_to_quaternion_motion(i) for i in range(startIdx, endIdx)]
+        return ret
+
+
     def convert_bvf_to_quaternion_motion(self, frame:int): # {glm.quat}: #A to B(x,y,z,w)
         '''
         frame目のモーションデータを、
@@ -50,7 +54,7 @@ class bvh2motion():
         '''
         #frame番号のセット
         frame = max(0,min(self.nFrame, frame))
-        hier.loadPose(frame)
+        self.hierarchy.loadPose(frame)
         
         #計算に必要なジョイントの取得
         joints = [self.hierarchy.filter(name)[0] for name in self.joints_name.keys()]
@@ -103,114 +107,112 @@ class bvh2motion():
                 angle = math.acos(dot)
                 return glm.angleAxis(angle, axis)
             
-        quot = {}
+        quats = {}
         Y_ax = glm.vec3(0, 1, 0)
 
-        quot['body']    = quat_from_two_vectors(Y_ax, v_body)
-        quot['rShldr'] = quat_from_two_vectors(v_rCol_rShl, v_rShl_rArm)
-        quot['rElbow'] = quat_from_two_vectors(v_rShl_rArm, v_rArm_rHnd)
-        quot['lShldr'] = quat_from_two_vectors(v_lCol_lShl, v_lShl_lArm)
-        quot['lElbow'] = quat_from_two_vectors(v_lShl_lArm, v_lArm_lHnd)
-        quot['rHip']   = quat_from_two_vectors(v_rvBody, v_rThg_rShn)
-        quot['rKnee']  = quat_from_two_vectors(v_rThg_rShn, v_rShn_rFot)
-        quot['rAnkle'] = quat_from_two_vectors(v_rShn_rFot, v_rFot_rToe)
-        quot['lHip']   = quat_from_two_vectors(v_rvBody, v_lThg_lShn)
-        quot['lKnee']  = quat_from_two_vectors(v_lThg_lShn, v_lShn_lFot)
-        quot['lAnkle'] = quat_from_two_vectors(v_lShn_lFot, v_lFot_lToe)
-        return quot
+        quats['body']    = quat_from_two_vectors(Y_ax, v_body)
+        quats['rShldr'] = quat_from_two_vectors(v_rCol_rShl, v_rShl_rArm)
+        quats['rElbow'] = quat_from_two_vectors(v_rShl_rArm, v_rArm_rHnd)
+        quats['lShldr'] = quat_from_two_vectors(v_lCol_lShl, v_lShl_lArm)
+        quats['lElbow'] = quat_from_two_vectors(v_lShl_lArm, v_lArm_lHnd)
+        quats['rHip']   = quat_from_two_vectors(v_rvBody, v_rThg_rShn)
+        quats['rKnee']  = quat_from_two_vectors(v_rThg_rShn, v_rShn_rFot)
+        quats['rAnkle'] = quat_from_two_vectors(v_rShn_rFot, v_rFot_rToe)
+        quats['lHip']   = quat_from_two_vectors(v_rvBody, v_lThg_lShn)
+        quats['lKnee']  = quat_from_two_vectors(v_lThg_lShn, v_lShn_lFot)
+        quats['lAnkle'] = quat_from_two_vectors(v_lShn_lFot, v_lFot_lToe)
+        return quats
 
 
 
 
 
 
+if __name__=='__main__':
+    joints_name = {'hip':0, 'abdomen':1, 'chest':2, 'neck':3, 'head':4, 
+                        'rCollar':5, 'rShldr':6, 'rForeArm':7, 'rHand':8, 
+                        'lCollar':9, 'lShldr':10, 'lForeArm':11, 'lHand':12, 
+                        'rButtock':13, 'rThigh':14, 'rShin':15, 'rFoot':16, 
+                        'lButtock':17, 'lThigh':18, 'lShin':19, 'lFoot':20, }
 
-joints_name = {'hip':0, 'abdomen':1, 'chest':2, 'neck':3, 'head':4, 
-                    'rCollar':5, 'rShldr':6, 'rForeArm':7, 'rHand':8, 
-                    'lCollar':9, 'lShldr':10, 'lForeArm':11, 'lHand':12, 
-                    'rButtock':13, 'rThigh':14, 'rShin':15, 'rFoot':16, 
-                    'lButtock':17, 'lThigh':18, 'lShin':19, 'lFoot':20, }
+    print('bvh to motion data')
+    hier = bvhio.readAsHierarchy('motions/02_01.bvh')
+    root = bvhio.readAsBvh('motions/02_01.bvh')
+    hier.printTree()
+    hier.loadPose(10)
+    print('0,0,0')
+    for i in range(10):
+        print(f'0,{i},0')
+    for i in range(1):
+        hier.loadPose(i)
+        joints = [hier.filter(name)[0] for name in joints_name]
+        pos = [j.PositionWorld for j in joints]
+        for p in pos:
+            print(f'{p[0]},{p[1]},{p[2]}')
+            print(type(p))
 
-        
+    readMotion = bvh2motion('motions/02_01.bvh')
+    dic = readMotion.convert_bvf_to_quaternion_motion(0)
+    for key, val in dic.items():
+        print(f'{key}: {val}')
 
-print('bvh to motion data')
-hier = bvhio.readAsHierarchy('motions/02_01.bvh')
-root = bvhio.readAsBvh('motions/02_01.bvh')
-hier.printTree()
-hier.loadPose(10)
-print('0,0,0')
-for i in range(10):
-    print(f'0,{i},0')
-for i in range(1):
-    hier.loadPose(i)
-    joints = [hier.filter(name)[0] for name in joints_name]
-    pos = [j.PositionWorld for j in joints]
-    for p in pos:
-        print(f'{p[0]},{p[1]},{p[2]}')
-        print(type(p))
-    
-readMotion = bvh2motion('motions/02_01.bvh')
-dic = readMotion.convert_bvf_to_quaternion_motion(0)
-for key, val in dic.items():
-    print(f'{key}: {val}')
+    # for i in range(100):
+    #     hier.loadPose(i)
 
-# for i in range(100):
-#     hier.loadPose(i)
+    #     joint1 = hier.filter('rButtock')[0]
+    #     joint2 = hier.filter('rThigh')[0]
+    #     joint3 = hier.filter('rShin')[0]
+    #     joint4 = hier.filter('rFoot')[0]
+    #     # print(joint1.UpWorld)
+    #     # print(joint2.UpWorld)
+    #     # print(joint3.UpWorld)
+    #     # print(joint4.UpWorld)
+    #     x1 = joint1.UpWorld[0]*10
+    #     y1 = joint1.UpWorld[1]*10
+    #     z1 = joint1.UpWorld[2]*10
+    #     x2 = joint1.UpWorld[0]*10 + joint2.UpWorld[0]*10
+    #     y2 = joint1.UpWorld[1]*10 + joint2.UpWorld[1]*10
+    #     z2 = joint1.UpWorld[2]*10 + joint2.UpWorld[2]*10
+    #     x3 = joint1.UpWorld[0]*10 + joint2.UpWorld[0]*10 + joint3.UpWorld[0]*10
+    #     y3 = joint1.UpWorld[1]*10 + joint2.UpWorld[1]*10 + joint3.UpWorld[1]*10
+    #     z3 = joint1.UpWorld[2]*10 + joint2.UpWorld[2]*10 + joint3.UpWorld[2]*10
+    #     x4 = joint1.UpWorld[0]*10 + joint2.UpWorld[0]*10 + joint3.UpWorld[0]*10 + joint4.UpWorld[0]*10
+    #     y4 = joint1.UpWorld[1]*10 + joint2.UpWorld[1]*10 + joint3.UpWorld[1]*10 + joint4.UpWorld[1]*10
+    #     z4 = joint1.UpWorld[2]*10 + joint2.UpWorld[2]*10 + joint3.UpWorld[2]*10 + joint4.UpWorld[2]*10
+    #     print(f'{x1},{y1},{z1}')
+    #     print(f'{x2},{y2},{z2}')
+    #     print(f'{x3},{y3},{z3}')
+    #     print(f'{x4},{y4},{z4}')
+        # print('****')
 
-#     joint1 = hier.filter('rButtock')[0]
-#     joint2 = hier.filter('rThigh')[0]
-#     joint3 = hier.filter('rShin')[0]
-#     joint4 = hier.filter('rFoot')[0]
-#     # print(joint1.UpWorld)
-#     # print(joint2.UpWorld)
-#     # print(joint3.UpWorld)
-#     # print(joint4.UpWorld)
-#     x1 = joint1.UpWorld[0]*10
-#     y1 = joint1.UpWorld[1]*10
-#     z1 = joint1.UpWorld[2]*10
-#     x2 = joint1.UpWorld[0]*10 + joint2.UpWorld[0]*10
-#     y2 = joint1.UpWorld[1]*10 + joint2.UpWorld[1]*10
-#     z2 = joint1.UpWorld[2]*10 + joint2.UpWorld[2]*10
-#     x3 = joint1.UpWorld[0]*10 + joint2.UpWorld[0]*10 + joint3.UpWorld[0]*10
-#     y3 = joint1.UpWorld[1]*10 + joint2.UpWorld[1]*10 + joint3.UpWorld[1]*10
-#     z3 = joint1.UpWorld[2]*10 + joint2.UpWorld[2]*10 + joint3.UpWorld[2]*10
-#     x4 = joint1.UpWorld[0]*10 + joint2.UpWorld[0]*10 + joint3.UpWorld[0]*10 + joint4.UpWorld[0]*10
-#     y4 = joint1.UpWorld[1]*10 + joint2.UpWorld[1]*10 + joint3.UpWorld[1]*10 + joint4.UpWorld[1]*10
-#     z4 = joint1.UpWorld[2]*10 + joint2.UpWorld[2]*10 + joint3.UpWorld[2]*10 + joint4.UpWorld[2]*10
-#     print(f'{x1},{y1},{z1}')
-#     print(f'{x2},{y2},{z2}')
-#     print(f'{x3},{y3},{z3}')
-#     print(f'{x4},{y4},{z4}')
-    # print('****')
-    
-    # joint1 = hier.filter('lButtock')[0]
-    # joint2 = hier.filter('lThigh')[0]
-    # joint3 = hier.filter('lShin')[0]
-    # joint4 = hier.filter('lFoot')[0]
-    # # print(joint1.UpWorld)
-    # # print(joint2.UpWorld)
-    # # print(joint3.UpWorld)
-    # # print(joint4.UpWorld)
-    # x1 = joint1.PositionWorld[0]*10
-    # y1 = joint1.PositionWorld[1]*10
-    # z1 = joint1.PositionWorld[2]*10
-    # x2 = joint1.PositionWorld[0]*10 + joint2.PositionWorld[0]*10
-    # y2 = joint1.PositionWorld[1]*10 + joint2.PositionWorld[1]*10
-    # z2 = joint1.PositionWorld[2]*10 + joint2.PositionWorld[2]*10
-    # x3 = joint1.PositionWorld[0]*10 + joint2.PositionWorld[0]*10 + joint3.PositionWorld[0]*10
-    # y3 = joint1.PositionWorld[1]*10 + joint2.PositionWorld[1]*10 + joint3.PositionWorld[1]*10
-    # z3 = joint1.PositionWorld[2]*10 + joint2.PositionWorld[2]*10 + joint3.PositionWorld[2]*10
-    # x4 = joint1.PositionWorld[0]*10 + joint2.PositionWorld[0]*10 + joint3.PositionWorld[0]*10 + joint4.PositionWorld[0]*10
-    # y4 = joint1.PositionWorld[1]*10 + joint2.PositionWorld[1]*10 + joint3.PositionWorld[1]*10 + joint4.PositionWorld[1]*10
-    # z4 = joint1.PositionWorld[2]*10 + joint2.PositionWorld[2]*10 + joint3.PositionWorld[2]*10 + joint4.PositionWorld[2]*10
-    # print(f'{x1},{y1},{z1}')
-    # print(f'{x2},{y2},{z2}')
-    # print(f'{x3},{y3},{z3}')
-    # print(f'{x4},{y4},{z4}')
-    
-    # print(f'{joint1.UpWorld[0]*10:.4f},{joint1.UpWorld[1]*10:.4f},{joint1.UpWorld[2]*10:.4f} ')
-    # print(f'{joint1.UpWorld[0]*10:.4f},{joint1.UpWorld[1]*10:.4f},{joint1.UpWorld[2]*10:.4f} ')
+        # joint1 = hier.filter('lButtock')[0]
+        # joint2 = hier.filter('lThigh')[0]
+        # joint3 = hier.filter('lShin')[0]
+        # joint4 = hier.filter('lFoot')[0]
+        # # print(joint1.UpWorld)
+        # # print(joint2.UpWorld)
+        # # print(joint3.UpWorld)
+        # # print(joint4.UpWorld)
+        # x1 = joint1.PositionWorld[0]*10
+        # y1 = joint1.PositionWorld[1]*10
+        # z1 = joint1.PositionWorld[2]*10
+        # x2 = joint1.PositionWorld[0]*10 + joint2.PositionWorld[0]*10
+        # y2 = joint1.PositionWorld[1]*10 + joint2.PositionWorld[1]*10
+        # z2 = joint1.PositionWorld[2]*10 + joint2.PositionWorld[2]*10
+        # x3 = joint1.PositionWorld[0]*10 + joint2.PositionWorld[0]*10 + joint3.PositionWorld[0]*10
+        # y3 = joint1.PositionWorld[1]*10 + joint2.PositionWorld[1]*10 + joint3.PositionWorld[1]*10
+        # z3 = joint1.PositionWorld[2]*10 + joint2.PositionWorld[2]*10 + joint3.PositionWorld[2]*10
+        # x4 = joint1.PositionWorld[0]*10 + joint2.PositionWorld[0]*10 + joint3.PositionWorld[0]*10 + joint4.PositionWorld[0]*10
+        # y4 = joint1.PositionWorld[1]*10 + joint2.PositionWorld[1]*10 + joint3.PositionWorld[1]*10 + joint4.PositionWorld[1]*10
+        # z4 = joint1.PositionWorld[2]*10 + joint2.PositionWorld[2]*10 + joint3.PositionWorld[2]*10 + joint4.PositionWorld[2]*10
+        # print(f'{x1},{y1},{z1}')
+        # print(f'{x2},{y2},{z2}')
+        # print(f'{x3},{y3},{z3}')
+        # print(f'{x4},{y4},{z4}')
 
-# for joint, index, depth in hier.layout():
-#     print(f'{joint.PositionWorld} {joint.UpWorld} {joint.Name} {index} {depth}')
-#     print(joint.Children)
+        # print(f'{joint1.UpWorld[0]*10:.4f},{joint1.UpWorld[1]*10:.4f},{joint1.UpWorld[2]*10:.4f} ')
+        # print(f'{joint1.UpWorld[0]*10:.4f},{joint1.UpWorld[1]*10:.4f},{joint1.UpWorld[2]*10:.4f} ')
+
+    # for joint, index, depth in hier.layout():
+    #     print(f'{joint.PositionWorld} {joint.UpWorld} {joint.Name} {index} {depth}')
+    #     print(joint.Children)
