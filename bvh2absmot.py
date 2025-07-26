@@ -25,7 +25,7 @@ class bvh2motion():
                     'rButtock':13, 'rThigh':14, 'rShin':15, 'rFoot':16, 
                     'lButtock':17, 'lThigh':18, 'lShin':19, 'lFoot':20, }
     
-    quaternions_name = {'Body':0, 'rShldr':1, 'rElbow':2, 'lShldr':3, 'lElbow':4, 
+    quat_name = {'Body':0, 'rShldr':1, 'rElbow':2, 'lShldr':3, 'lElbow':4, 
                 'rHip':5, 'rKnee':6, 'rAnkle':7, 'lHip':8, 'lKnee':9, 'lAnkle':10}
 
     def __init__(self, filepath):
@@ -116,7 +116,7 @@ class bvh2motion():
         v_body = positions[jn['chest']] - positions[jn['hip']]
         v_rvBody = positions[jn['hip']] - positions[jn['abdomen']]
 
-        #各座標のベクトルからクオータニオンを計算する
+        #各向きのベクトルからクオータニオンを計算する
         
         def quat_from_two_vectors(a: glm.vec3, b: glm.vec3) -> glm.quat: #A to B(x,y,z,w)
             a = glm.normalize(a)
@@ -139,19 +139,20 @@ class bvh2motion():
                 return glm.angleAxis(angle, axis)
             
         quats = {}
-        Y_ax = glm.vec3(0, 1, 0)
+        qn = self.quat_name
+        Y_ax = glm.vec3(0, 0, 1)
 
-        quats['body']    = quat_from_two_vectors(Y_ax, v_body)
-        quats['rShldr'] = quat_from_two_vectors(v_rCol_rShl, v_rShl_rArm)
-        quats['rElbow'] = quat_from_two_vectors(v_rShl_rArm, v_rArm_rHnd)
-        quats['lShldr'] = quat_from_two_vectors(v_lCol_lShl, v_lShl_lArm)
-        quats['lElbow'] = quat_from_two_vectors(v_lShl_lArm, v_lArm_lHnd)
-        quats['rHip']   = quat_from_two_vectors(v_rvBody, v_rThg_rShn)
-        quats['rKnee']  = quat_from_two_vectors(v_rThg_rShn, v_rShn_rFot)
-        quats['rAnkle'] = quat_from_two_vectors(v_rShn_rFot, v_rFot_rToe)
-        quats['lHip']   = quat_from_two_vectors(v_rvBody, v_lThg_lShn)
-        quats['lKnee']  = quat_from_two_vectors(v_lThg_lShn, v_lShn_lFot)
-        quats['lAnkle'] = quat_from_two_vectors(v_lShn_lFot, v_lFot_lToe)
+        quats[qn['Body']]    = quat_from_two_vectors(Y_ax, v_body)
+        quats[qn['rShldr']] = quat_from_two_vectors(v_rCol_rShl, v_rShl_rArm)
+        quats[qn['rElbow']] = quat_from_two_vectors(v_rShl_rArm, v_rArm_rHnd)
+        quats[qn['lShldr']] = quat_from_two_vectors(v_lCol_lShl, v_lShl_lArm)
+        quats[qn['lElbow']] = quat_from_two_vectors(v_lShl_lArm, v_lArm_lHnd)
+        quats[qn['rHip']]   = quat_from_two_vectors(v_rvBody, v_rThg_rShn)
+        quats[qn['rKnee']]  = quat_from_two_vectors(v_rThg_rShn, v_rShn_rFot)
+        quats[qn['rAnkle']] = quat_from_two_vectors(v_rShn_rFot, v_rFot_rToe)
+        quats[qn['lHip']]   = quat_from_two_vectors(v_rvBody, v_lThg_lShn)
+        quats[qn['lKnee']]  = quat_from_two_vectors(v_lThg_lShn, v_lShn_lFot)
+        quats[qn['lAnkle']] = quat_from_two_vectors(v_lShn_lFot, v_lFot_lToe)
         return quats
 
 
