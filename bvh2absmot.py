@@ -41,9 +41,20 @@ class bvh2motion():
         '''
         Start~Endまでの各フレームのクオータニオンを取得する
         '''
+        startIdx = round(startIdx)
+        endIdx = round(endIdx)
         startIdx = max(0,min(self.nFrame, startIdx))
         endIdx = max(0,min(self.nFrame, endIdx))
         ret = [self.convert_bvf_to_quaternion_motion(i) for i in range(startIdx, endIdx)]
+        return ret
+
+    def get_quaternion(self,frame):
+        '''
+        frameのクオータニオンを取得
+        '''
+        frame = round(frame)
+        frame = max(0,min(self.nFrame, frame))
+        ret = self.convert_bvf_to_quaternion_motion(frame)
         return ret
 
 
@@ -53,6 +64,7 @@ class bvh2motion():
         クオータニオンにすることで抽象化したモーションに変形する
         '''
         #frame番号のセット
+        frame = round(frame)
         frame = max(0,min(self.nFrame, frame))
         self.hierarchy.loadPose(frame)
         
@@ -61,8 +73,27 @@ class bvh2motion():
         positions = [joint.PositionWorld for joint in joints]
         Ups = [joint.UpWorld for joint in joints]
 
+        #モーションキャプチャ座標からPybullet座標に変換
+        #正面z、横x、高さy　→　正面x、横y、高さz
+        is_comb_world_motion_pybullet = True
+        if is_comb_world_motion_pybullet:
+            new_position = []
+            for position in positions:
+                new_position.append(glm.vec3(position.z,
+                                             position.x,
+                                             position.y))
+            new_Ups = []
+            for up in Ups:
+                new_Ups.append(glm.vec3(up.z,
+                                        up.x,
+                                        up.y))
+            positions = new_position
+            Ups = new_Ups
+
+
         #計算に必要なベクトルの計算
         jn = self.joints_name
+
         #両腕
         v_rCol_rShl = positions[jn['rShldr']] - positions[jn['rCollar']]
         v_rShl_rArm = positions[jn['rForeArm']] - positions[jn['rShldr']]

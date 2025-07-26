@@ -1,6 +1,6 @@
 import numpy as np
-
 import pybullet as p
+
 
 Flag_CONTACT = {
 "contactFlag": 0,
@@ -20,12 +20,16 @@ Flag_CONTACT = {
 }
 
 def sensor_debug(model, floor):
-    # print('sens')
+    '''
+    デバッグ用
+    モデルと床との接触をチェック
+    接触している場合、法線ベクトルと接触点を表示する
+    '''
     contacts = p.getContactPoints(model, floor)
     print(f'n contact {len(contacts)}')
     # print(len(contacts))
     for cat in contacts:
-        # print(cat)
+        print(cat)
         dist = cat[Flag_CONTACT['contactDistance']]
         if dist < 0.001:
             start = np.array(cat[Flag_CONTACT['positionOnA']])
@@ -40,3 +44,5 @@ def sensor_debug(model, floor):
                                  pointColorsRGB=[[0., 1., 0.]],
                                  pointSize=10)
                                 #  lifeTime=0.1)
+
+
