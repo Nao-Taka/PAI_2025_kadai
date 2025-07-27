@@ -99,7 +99,7 @@ def set_pose(atlas_id, motion):
     vec_sune = motion[vecName2idx['sune']]
     vec_momo = motion[vecName2idx['momo']]
     vec_body = motion[vecName2idx['body']]
-    print(f'vector... {vec_foot} {vec_sune} {vec_momo} {vec_body}')
+    # print(f'vector... {vec_foot} {vec_sune} {vec_momo} {vec_body}')
     
     #各関節についてベクトルどうしのなす角を計算
     #XZ平面のでの回転の向きとY軸の右ねじの関係上、関節角をセットするときには正負逆転が必要
@@ -107,7 +107,7 @@ def set_pose(atlas_id, motion):
     theta_ancle = angle_between_2vec_onXZ(vec_sune, vec_foot)
     theta_knee = angle_between_2vec_onXZ(vec_momo, vec_sune)
     theta_hip = angle_between_2vec_onXZ(vec_body, vec_momo)
-    print(f'angles... ancle:{theta_ancle:.3f} knee:{theta_knee:.3f} hip:{theta_hip:.3f}')
+    # print(f'angles... ancle:{theta_ancle:.3f} knee:{theta_knee:.3f} hip:{theta_hip:.3f}')
 
     #関節角度のセット
     p.setJointMotorControl2(bodyUniqueId=atlas_id, jointIndex=jointName2idx['l_leg_hpy'],
