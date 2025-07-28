@@ -28,8 +28,8 @@ physicsClient = p.connect(p.GUI)  # または p.DIRECT で非表示モード
 
 # 環境初期化
 p.setAdditionalSearchPath(pybullet_data.getDataPath())
-# p.setGravity(0, 0, -9.8)
-p.setGravity(0, 0,0)
+p.setGravity(0, 0, -9.8/3)
+# p.setGravity(0, 0,0)
 # リアルタイムで動かすならこれを有効に
 p.setRealTimeSimulation(0)  # 0なら手動stepSimulation()
 
@@ -68,16 +68,19 @@ while True:
         cnt.set_pose(atlas1, motion2)
     if counter == 500:
         cnt.set_pose(atlas1, motion1)
+    
+    if counter == 700:
+        counter = 0
+        p.resetBasePositionAndOrientation(
+           bodyUniqueId=atlas1,              # オブジェクトのID
+            posObj=[0, 0, 1.2],                    # 新しい位置
+            ornObj=p.getQuaternionFromEuler([0, 0, 0])  # 新しい向き（例：初期化）
+        )
 
     if counter % 50 == 0:
         current_motion = cnt.get_pose(atlas1)
         cnt.motion_viewer(current_motion, glm.vec3(0, 1, 0.5))
         
-    
-    
-    # 
-
-
     counter += 1
     if counter % 50 == 0:
         print(f'frame:{counter}')

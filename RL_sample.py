@@ -1,9 +1,13 @@
 import copy
 import time
+from datetime import datetime
+import pytz
 
 import numpy as np
 import glm
+from termcolor import cprint, colored
 
+import cv2
 import pybullet as p
 import pybullet_data
 
@@ -18,12 +22,17 @@ from motion_controller import set_pose, get_pose, init_pose
 atlas_path = 'pybullet_robots/data/atlas_add_footsensor/atlas_v4_with_multisense.urdf'
 
 class AtlasEnv(gym.Env):
-    def __init__(self):
+    def __init__(self, is_direct=True, render_mode=None):
         super().__init__()
+        #クラス特有の初期化
+        self.render_mode = render_mode
         
         # PyBulletセットアップ
-        
-        self.physicsClient = p.connect(p.GUI)
+        if is_direct:
+            self.physicsClient = p.connect(p.DIRECT)
+        else:
+            self.physicsClient = p.connect(p.GUI)
+
         p.setGravity(0, 0, -9.8/10)
         p.setTimeStep(1.0 / 100)
         p.setAdditionalSearchPath(pybullet_data.getDataPath())
@@ -61,10 +70,12 @@ class AtlasEnv(gym.Env):
                                     2:glm.vec3(0, 0, 1), 3:glm.vec3(0, 0, 1)})
         
     def reset(self, seed=None, options=None):
+        
 
-        p.resetSimulation()
-        self.floor_id = p.loadURDF("plane.urdf")
-        self.atlas_id = p.loadURDF(atlas_path, [0, 0, 1.2])
+        # p.resetSimulation()
+        # self.floor_id = p.loadURDF("plane.urdf")
+        # self.atlas_id = p.loadURDF(atlas_path, [0, 0, 1.2])
+        self.__reset()
         p.setGravity(0, 0, -9.8)
         p.setTimeStep(1.0 / 100)
         init_pose(self.atlas_id)
@@ -80,8 +91,10 @@ class AtlasEnv(gym.Env):
         next_pose = self.target_pose[0]
         obs = self.__create_next_observationSpace(self.past_poses, next_pose)
 
+        info = {'is_reset':True}
 
-        return obs, {}
+
+        return obs, info
 
     def step(self, action):
         #Actionを変形する
@@ -119,12 +132,28 @@ class AtlasEnv(gym.Env):
         
         #debug用のInfo
         info = {}
+        info['is_reset'] = True
+        info['reward'] = reward
 
         return obs, reward, done, False, info
 
 
     def render(self):
-        pass  # GUI版なら `p.connect(p.GUI)` にして、ここでstep以外に可視化処理入れてもOK
+        # cprint('render run', 'red')
+        if self.render_mode=='human':
+            return True
+        elif self.render_mode=='rgb_array':
+            width, height = 960, 720
+            
+            (_, _, px, _, _) = p.getCameraImage(
+            width=width,
+            height=height,
+            # viewMatrix=view_matrix,
+            # projectionMatrix=proj_matrix
+            )
+            rgb_array = np.array(px)[:, :, :3]  # RGBA → RGB
+            return rgb_array
+        return None
 
     def __action2motion(self, action)-> dict[int, glm.vec3]:
         #actionは12次元のnumpy配列
@@ -150,18 +179,23 @@ class AtlasEnv(gym.Env):
         ret = []
 
         #次のモーションを取得
-        next_motion = next_pose
-        current_pose_and_next_motion = copy.deepcopy(pose_histry)
-        current_pose_and_next_motion.append(next_motion)
+        # next_motion = next_pose
+        # current_pose_and_next_motion = copy.deepcopy(pose_histry)
+        # current_pose_and_next_motion.append(next_motion)
 
-        #これまでの姿勢たちと次のモーションをリストに変形
+        #これまでの姿勢たちをリストに変形
         #1つのモーションにつき0~3でインデクスされた辞書であり
-        #1つの要素につきglm.vec3であるので
-        for motion in current_pose_and_next_motion:
+        #1つの要素につきglm.vec3であるのでそれぞれをListに変形
+        for motion in pose_histry: #current_pose_and_next_motion:
             #過去3ステップの姿勢について1ステップごとに処理
             for vec in motion.values():
                 vec = glm.normalize(vec)
                 ret.append(list(vec))
+
+        #次のモーションの番
+        for vec in next_pose.values():
+            vec = glm.normalize(vec)
+            ret.append(list(vec))
 
         return np.array(ret).flatten().astype(np.float32)
     
@@ -173,12 +207,124 @@ class AtlasEnv(gym.Env):
             d = glm.clamp(glm.dot(cVec, tVec), -1, 1) #類似度の計算
             ret += d
         return ret / len(currentpose) #平均をとり[-1, 1]に収める
-
     
-env = AtlasEnv()
-# check_env(env)
+    def __reset(self):
+        p.resetBasePositionAndOrientation(
+           bodyUniqueId=self.atlas_id,              # オブジェクトのID
+            posObj=[0, 0, 1.2],                    # 新しい位置
+            ornObj=p.getQuaternionFromEuler([0, 0, 0])  # 新しい向き（例：初期化）
+        )
+        num_joints = p.getNumJoints(self.atlas_id)
+        
+        # 各ジョイントをゼロにリセット
+        for joint_index in range(num_joints):
+            joint_info = p.getJointInfo(self.atlas_id, joint_index)
+            joint_type = joint_info[2]
+
+            # 可動ジョイントのみ（REVOLUTE or PRISMATIC）を対象にリセット
+            if joint_type in [p.JOINT_REVOLUTE, p.JOINT_PRISMATIC]:
+                p.resetJointState(self.atlas_id, joint_index, targetValue=0.0)
+
+
+
+
+
+
+total_timesteps = 1_000_000
+    
+env = AtlasEnv(render_mode='rgb_array')
+    # check_env(env)
+
+
+
+# ログ出力用ディレクトリの設定
+now_str = datetime.now(pytz.timezone('Asia/Tokyo')).strftime("%Y%m%d_%H%M%S")
+log_path = f"./logs/run1_{now_str}/"
+
+#####################
+#コールバック関係の処理
+#####################
+
+from stable_baselines3.common.callbacks import EvalCallback, BaseCallback, CallbackList
+
+
+# 環境の評価とログ出力を行うコールバック
+eval_callback = EvalCallback(env,
+                             best_model_save_path=log_path,
+                             log_path=log_path, eval_freq=10000,
+                             deterministic=True, render=False)
+
+
+#独自処理のためのBasecallback継承クラス
+class CustomCallback(BaseCallback):
+    def __init__(self, render_interval=20, save_dir='renders', verbose=0):
+        '''
+        render_intervalのエピソード毎に保存する
+        '''
+        super().__init__(self)
+        self.render_interval = render_interval
+
+        self.n_episode = 0
+        self.is_first_of_episode = False
+        cv2.namedWindow('rendering', cv2.WINDOW_NORMAL)
+
+    def _on_step(self):
+        # self.training_env[0].render()
+        # return super()._on_step()
+
+        print(self.n_episode)
+        print(self.n_calls)
+
+        if (self.n_episode % self.render_interval) == 0:
+            #指定ステップごとに現在の様子を表示する
+            #動画として保存も検討
+            env = self.training_env.envs[0]
+            img = env.render()
+            img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
+            cv2.imshow('rendering', img)
+            cv2.waitKey(1)
+
+
+        dones = self.locals['dones']
+        if any(dones):
+            #1つのエピソードが終わるたびに呼ばれる処理
+            self.n_episode += 1
+            self.is_first_of_episode = True
+        else:
+            self.is_first_of_episode = False
+
+
+        return True
+    
+    def _on_rollout_start(self):
+        return True
+
+    def _on_training_start(self):
+        cprint('on training stard called', 'red')
+    
+
+
+from stable_baselines3.common.logger import configure
+
+
+custom_calback = CustomCallback()
+
+calbacks = CallbackList([
+    eval_callback,
+    custom_calback
+])
+
 model = PPO('MlpPolicy', env, verbose=1)
-model.learn(total_timesteps=1_000_000)
+
+new_logger = configure(log_path, ["stdout", "csv"])  # CSV出力！
+model.set_logger(new_logger)
+
+model.learn(total_timesteps=total_timesteps, log_interval=10, 
+            callback=calbacks, progress_bar=True)
+
+
+
+# model.learn(total_timesteps=total_timesteps, callback=eval_callback, progress_bar=True)
 model.save('atlas_rl_model_standing')
 # obs, _ = env.reset()
 # for _ in range(1000):
