@@ -162,10 +162,15 @@ class AtlasEnv(gym.Env):
             height=height,
             viewMatrix=view_matrix
             # projectionMatrix=proj_matrix
+            ,renderer=p.ER_TINY_RENDERER
             )
             rgb_array = np.array(px)[:, :, :3]  # RGBA → RGB
             return rgb_array
         return None
+    
+    def close(self):
+        if p.isConnected(self.physicsClient):
+            p.disconnect(self.physicsClient)
 
     def __action2motion(self, action)-> dict[int, glm.vec3]:
         #actionは12次元のnumpy配列
@@ -269,14 +274,6 @@ class CustomCallback(BaseCallback):
         # return super()._on_step()
 
 
-        if (self.n_episode % self.render_interval) == 0:
-            #指定ステップごとに現在の様子を表示する
-            #動画として保存も検討
-            env = self.training_env.envs[0]
-            img = env.render()
-            img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
-            cv2.imshow('rendering', img)
-            cv2.waitKey(1)
 
 
         dones = self.locals['dones']
@@ -285,6 +282,30 @@ class CustomCallback(BaseCallback):
             print(f'next episode is {self.n_episode}')
             self.n_episode += 1
             self.is_first_of_episode = True
+            
+            if (self.n_episode % self.render_interval) == 0:
+                #指定ステップごとに現在の様子を表示する
+                # client_id = p.connect(p.GUI)
+                env = AtlasEnv(is_direct=False, render_mode='rgb_array')
+                obs, _ = env.reset()
+                done = False
+                total_reward = 0
+                while not done:
+                    action, _ = self.model.predict(obs, deterministic=True)
+                    obs, reward, terminated, truncated, info = env.step(action)
+                    #動画として保存も検討
+                    img = env.render()
+                    img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
+                    cv2.imshow('rendering', img)
+                    cv2.waitKey(1)
+                    done = terminated or truncated
+                    total_reward += reward
+                print(f'This episode is :{self.n_episode}, reward is {total_reward}')
+                env.close()
+                # p.disconnect(client_id)
+
+
+
         else:
             self.is_first_of_episode = False
 
