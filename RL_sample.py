@@ -15,6 +15,7 @@ import gymnasium as gym
 from gymnasium import spaces
 import stable_baselines3
 from stable_baselines3 import PPO
+from stable_baselines3.common.callbacks import EvalCallback, BaseCallback, CallbackList
 from stable_baselines3.common.env_checker import check_env
 
 from motion_controller import set_pose, get_pose, init_pose
@@ -26,6 +27,7 @@ class AtlasEnv(gym.Env):
         super().__init__()
         #クラス特有の初期化
         self.render_mode = render_mode
+        self.atlas_init_pos = [0, 0, 1.1]
         
         # PyBulletセットアップ
         if is_direct:
@@ -37,10 +39,10 @@ class AtlasEnv(gym.Env):
         p.setTimeStep(1.0 / 100)
         p.setAdditionalSearchPath(pybullet_data.getDataPath())
         self.floor_id = p.loadURDF("plane.urdf")
-        self.atlas_id = p.loadURDF(atlas_path, [0, 0, 1.2])
+        self.atlas_id = p.loadURDF(atlas_path, self.atlas_init_pos)
         init_pose(self.atlas_id)
-
     
+
         # 観測空間（例：過去3フレームの姿勢＋次の予定姿勢）
         self.history_length = 3
         self.vec_dim = 4 * 3  # foot, sune, momo, body の各ベクトル（3次元）×4
@@ -63,19 +65,18 @@ class AtlasEnv(gym.Env):
                            {0:glm.vec3(0, 0, 1), 1:glm.vec3(0, 0, 1),
                              2:glm.vec3(0, 0, 1), 3:glm.vec3(0, 0, 1)},
                            ]  # 過去3ステップ分
-        
+
+        #目標の姿勢        
         self.target_pose = []
         for i in range(1000):
             self.target_pose.append({0:glm.vec3(0, 0, 1), 1:glm.vec3(0, 0, 1),
                                     2:glm.vec3(0, 0, 1), 3:glm.vec3(0, 0, 1)})
         
     def reset(self, seed=None, options=None):
-        
-
         # p.resetSimulation()
         # self.floor_id = p.loadURDF("plane.urdf")
         # self.atlas_id = p.loadURDF(atlas_path, [0, 0, 1.2])
-        self.__reset()
+        self.__reset(self.atlas_init_pos)
         p.setGravity(0, 0, -9.8)
         p.setTimeStep(1.0 / 100)
         init_pose(self.atlas_id)
@@ -93,8 +94,8 @@ class AtlasEnv(gym.Env):
 
         info = {'is_reset':True}
 
-
         return obs, info
+
 
     def step(self, action):
         #Actionを変形する
@@ -115,14 +116,20 @@ class AtlasEnv(gym.Env):
 
         #報酬計算
         reward = self.__reward(current_pose, now_frame_target_motion)
+        #姿勢を長く維持できるほど報酬
+        reward += 0.5
         
         #次のステップに移行
         self.current_step += 1
 
 
         #終了要件を満たしたなら終了
-        done = (self.current_step >= self.max_steps)
-        if done:
+        #転倒などを評価
+        terminated = self.__terminate_episode(current_pose)
+
+        #時間切れで強制狩猟        
+        truncated = (self.current_step >= self.max_steps)
+        if truncated:
             next_pose = self.target_pose[-1]
         else:
             next_pose = self.target_pose[self.current_step]
@@ -135,7 +142,7 @@ class AtlasEnv(gym.Env):
         info['is_reset'] = True
         info['reward'] = reward
 
-        return obs, reward, done, False, info
+        return obs, reward, terminated, truncated, info
 
 
     def render(self):
@@ -144,11 +151,16 @@ class AtlasEnv(gym.Env):
             return True
         elif self.render_mode=='rgb_array':
             width, height = 960, 720
+            view_matrix = p.computeViewMatrix(
+                cameraEyePosition=[10, 10, -15],      # カメラの位置
+                cameraTargetPosition=[0, 0, 0],  # 注視点
+                cameraUpVector=[0, 0, 1]                       # 上方向（Z軸が上）
+            )
             
             (_, _, px, _, _) = p.getCameraImage(
             width=width,
             height=height,
-            # viewMatrix=view_matrix,
+            viewMatrix=view_matrix
             # projectionMatrix=proj_matrix
             )
             rgb_array = np.array(px)[:, :, :3]  # RGBA → RGB
@@ -201,17 +213,27 @@ class AtlasEnv(gym.Env):
     
     def __reward(self, currentpose, targetpose):
         ret = 0
+        reward_weights = [0.5, 0.7, 0.7, 1.2]
         for i in range(len(currentpose)):
             cVec = glm.normalize(currentpose[i])
             tVec = glm.normalize(targetpose[i])
             d = glm.clamp(glm.dot(cVec, tVec), -1, 1) #類似度の計算
-            ret += d
-        return ret / len(currentpose) #平均をとり[-1, 1]に収める
+            ret += d * reward_weights[i]
+        return ret / len(currentpose) #平均をとる
+
+    def __terminate_episode(self, curentpose):
+        #早期終了のためのメソッド
+        #今回の場合は一定のたおれたとき
+        #条件を満たした場合はTrue
+        head_height = curentpose[1] * .5 + curentpose[2] * .5 + curentpose[3] *.8
+        if head_height.z < 0.7:
+            return True
+        return False
     
-    def __reset(self):
+    def __reset(self, initial_pos):
         p.resetBasePositionAndOrientation(
            bodyUniqueId=self.atlas_id,              # オブジェクトのID
-            posObj=[0, 0, 1.2],                    # 新しい位置
+            posObj=initial_pos,                    # 新しい位置
             ornObj=p.getQuaternionFromEuler([0, 0, 0])  # 新しい向き（例：初期化）
         )
         num_joints = p.getNumJoints(self.atlas_id)
@@ -227,35 +249,9 @@ class AtlasEnv(gym.Env):
 
 
 
-
-
-
-total_timesteps = 1_000_000
-    
-env = AtlasEnv(render_mode='rgb_array')
-    # check_env(env)
-
-
-
-# ログ出力用ディレクトリの設定
-now_str = datetime.now(pytz.timezone('Asia/Tokyo')).strftime("%Y%m%d_%H%M%S")
-log_path = f"./logs/run1_{now_str}/"
-
-#####################
-#コールバック関係の処理
-#####################
-
-from stable_baselines3.common.callbacks import EvalCallback, BaseCallback, CallbackList
-
-
-# 環境の評価とログ出力を行うコールバック
-eval_callback = EvalCallback(env,
-                             best_model_save_path=log_path,
-                             log_path=log_path, eval_freq=10000,
-                             deterministic=True, render=False)
-
-
+##########################################
 #独自処理のためのBasecallback継承クラス
+##########################################
 class CustomCallback(BaseCallback):
     def __init__(self, render_interval=20, save_dir='renders', verbose=0):
         '''
@@ -272,8 +268,6 @@ class CustomCallback(BaseCallback):
         # self.training_env[0].render()
         # return super()._on_step()
 
-        print(self.n_episode)
-        print(self.n_calls)
 
         if (self.n_episode % self.render_interval) == 0:
             #指定ステップごとに現在の様子を表示する
@@ -288,6 +282,7 @@ class CustomCallback(BaseCallback):
         dones = self.locals['dones']
         if any(dones):
             #1つのエピソードが終わるたびに呼ばれる処理
+            print(f'next episode is {self.n_episode}')
             self.n_episode += 1
             self.is_first_of_episode = True
         else:
@@ -304,10 +299,40 @@ class CustomCallback(BaseCallback):
     
 
 
+#####################
+#実行環境
+#####################
+
+total_timesteps = 1_000_000
+    
+env = AtlasEnv(is_direct=True, render_mode='rgb_array')
+    # check_env(env)
+
+
+
+# ログ出力用ディレクトリの設定
+now_str = datetime.now(pytz.timezone('Asia/Tokyo')).strftime("%Y%m%d_%H%M%S")
+log_path = f"./logs/run1_{now_str}/"
+
+#####################
+#コールバック関係の処理
+#####################
+
+
+
+# 環境の評価とログ出力を行うコールバック
+eval_callback = EvalCallback(env,
+                             best_model_save_path=log_path,
+                             log_path=log_path, eval_freq=10000,
+                             deterministic=True, render=False)
+
+
+
+
 from stable_baselines3.common.logger import configure
 
 
-custom_calback = CustomCallback()
+custom_calback = CustomCallback(render_interval=100)
 
 calbacks = CallbackList([
     eval_callback,
