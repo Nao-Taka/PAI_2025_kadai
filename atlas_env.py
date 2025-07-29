@@ -25,6 +25,7 @@ from stable_baselines3.common.env_checker import check_env
 
 from Bullet_util import saveMovie
 from motion_controller import set_pose, get_pose, init_pose, init_pose_reset
+import make_motion
 
 atlas_path = 'pybullet_robots/data/atlas_add_footsensor/atlas_v4_with_multisense.urdf'
 
@@ -227,7 +228,7 @@ class AtlasEnv(gym.Env):
     
     def __reward(self, currentpose, targetpose):
         ret = 0
-        reward_weights = [0.5, 0.7, 0.7, 1.2]
+        reward_weights = [1.5, 0.5, 0.5, 1.2]
         for i in range(len(currentpose)):
             cVec = glm.normalize(currentpose[i])
             tVec = glm.normalize(targetpose[i])
@@ -239,7 +240,10 @@ class AtlasEnv(gym.Env):
         #早期終了のためのメソッド
         #今回の場合は一定のたおれたとき
         #条件を満たした場合はTrue
-        head_height = curentpose[1] * .5 + curentpose[2] * .5 + curentpose[3] *.8
+        hip_height  = curentpose[1] * .5 + curentpose[2] * .5 
+        head_height = hip_height + curentpose[3] *.8
+        if hip_height.z < 0.5:
+            return True
         if head_height.z < 0.7:
             return True
         return False
@@ -351,6 +355,7 @@ if __name__=='__main__':
     total_timesteps = 1_000_000
     env = AtlasEnv(is_direct=True, render_mode='rgb_array')
     # check_env(env)
+    env.set_pose(make_motion.ozigi())
 
     # ログ出力用ディレクトリの設定
     now_str = datetime.now(pytz.timezone('Asia/Tokyo')).strftime("%Y%m%d_%H%M%S")
@@ -372,6 +377,7 @@ if __name__=='__main__':
                         custom_calback])
 
     model = PPO('MlpPolicy', env, verbose=1)
+    model.load('best_model_standing')
 
     from stable_baselines3.common.logger import configure
     new_logger = configure(log_path, ["stdout", "csv"])  # CSV出力！
