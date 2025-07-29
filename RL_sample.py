@@ -19,6 +19,7 @@ from stable_baselines3.common.callbacks import EvalCallback, BaseCallback, Callb
 from stable_baselines3.common.env_checker import check_env
 
 from motion_controller import set_pose, get_pose, init_pose
+from Bullet_util import saveMovie
 
 atlas_path = 'pybullet_robots/data/atlas_add_footsensor/atlas_v4_with_multisense.urdf'
 
@@ -157,13 +158,12 @@ class AtlasEnv(gym.Env):
                 cameraUpVector=[0, 0, 1]                       # 上方向（Z軸が上）
             )
             
-            (_, _, px, _, _) = p.getCameraImage(
-            width=width,
-            height=height,
-            viewMatrix=view_matrix
-            # projectionMatrix=proj_matrix
-            ,renderer=p.ER_TINY_RENDERER
-            )
+            width, height, px, _, _ = p.getCameraImage(width=width,
+                                                        height=height,
+                                                        viewMatrix=view_matrix
+                                                        # projectionMatrix=proj_matrix
+                                                        # ,renderer=p.ER_TINY_RENDERER
+                                                        )
             rgb_array = np.array(px)[:, :, :3]  # RGBA → RGB
             return rgb_array
         return None
@@ -258,20 +258,22 @@ class AtlasEnv(gym.Env):
 #独自処理のためのBasecallback継承クラス
 ##########################################
 class CustomCallback(BaseCallback):
-    def __init__(self, render_interval=20, save_dir='renders', verbose=0):
+    def __init__(self, save_dirpath, render_interval=20, verbose=0):
         '''
         render_intervalのエピソード毎に保存する
         '''
         super().__init__(self)
+        self.save_dirpath = save_dirpath
         self.render_interval = render_interval
 
         self.n_episode = 0
         self.is_first_of_episode = False
+        self.howlong_score = 0
         cv2.namedWindow('rendering', cv2.WINDOW_NORMAL)
 
     def _on_step(self):
-        # self.training_env[0].render()
-        # return super()._on_step()
+        #何ステップ続いたかをスコアリング
+        self.howlong_score += 1
 
 
 
@@ -279,36 +281,38 @@ class CustomCallback(BaseCallback):
         dones = self.locals['dones']
         if any(dones):
             #1つのエピソードが終わるたびに呼ばれる処理
-            print(f'next episode is {self.n_episode}')
+            print(f'{self.n_episode}: duration time...: {self.howlong_score}')
+            self.howlong_score = 0
             self.n_episode += 1
             self.is_first_of_episode = True
             
             if (self.n_episode % self.render_interval) == 0:
                 #指定ステップごとに現在の様子を表示する
                 # client_id = p.connect(p.GUI)
+                #検証用の環境構築
                 env = AtlasEnv(is_direct=False, render_mode='rgb_array')
                 obs, _ = env.reset()
                 done = False
                 total_reward = 0
+
+                rec = saveMovie(self.save_dirpath + f'movie_{self.n_episode}')
                 while not done:
                     action, _ = self.model.predict(obs, deterministic=True)
                     obs, reward, terminated, truncated, info = env.step(action)
-                    #動画として保存も検討
+                    #動画として保存
+                    # self.training_env[0].render()
                     img = env.render()
                     img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
                     cv2.imshow('rendering', img)
+                    rec.capture(img)
                     cv2.waitKey(1)
                     done = terminated or truncated
                     total_reward += reward
                 print(f'This episode is :{self.n_episode}, reward is {total_reward}')
                 env.close()
                 # p.disconnect(client_id)
-
-
-
         else:
             self.is_first_of_episode = False
-
 
         return True
     
@@ -348,20 +352,14 @@ eval_callback = EvalCallback(env,
                              deterministic=True, render=False)
 
 
+custom_calback = CustomCallback(save_dirpath=log_path, render_interval=100)
 
-
-from stable_baselines3.common.logger import configure
-
-
-custom_calback = CustomCallback(render_interval=100)
-
-calbacks = CallbackList([
-    eval_callback,
-    custom_calback
-])
+calbacks = CallbackList([eval_callback,
+                        custom_calback])
 
 model = PPO('MlpPolicy', env, verbose=1)
 
+from stable_baselines3.common.logger import configure
 new_logger = configure(log_path, ["stdout", "csv"])  # CSV出力！
 model.set_logger(new_logger)
 
@@ -370,7 +368,6 @@ model.learn(total_timesteps=total_timesteps, log_interval=10,
 
 
 
-# model.learn(total_timesteps=total_timesteps, callback=eval_callback, progress_bar=True)
 model.save('atlas_rl_model_standing')
 # obs, _ = env.reset()
 # for _ in range(1000):
