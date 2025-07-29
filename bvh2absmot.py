@@ -25,7 +25,7 @@ class bvh2motion():
                     'rButtock':13, 'rThigh':14, 'rShin':15, 'rFoot':16, 
                     'lButtock':17, 'lThigh':18, 'lShin':19, 'lFoot':20, }
     
-    quat_name = {'Body':0, 'rShldr':1, 'rElbow':2, 'lShldr':3, 'lElbow':4, 
+    quat_name = {'body':0, 'rShldr':1, 'rElbow':2, 'lShldr':3, 'lElbow':4, 
                 'rHip':5, 'rKnee':6, 'rAnkle':7, 'lHip':8, 'lKnee':9, 'lAnkle':10}
 
     def __init__(self, filepath):
@@ -117,7 +117,6 @@ class bvh2motion():
         v_rvBody = positions[jn['hip']] - positions[jn['abdomen']]
 
         #各向きのベクトルからクオータニオンを計算する
-        
         def quat_from_two_vectors(a: glm.vec3, b: glm.vec3) -> glm.quat: #A to B(x,y,z,w)
             a = glm.normalize(a)
             b = glm.normalize(b)
@@ -140,9 +139,9 @@ class bvh2motion():
             
         quats = {}
         qn = self.quat_name
-        Y_ax = glm.vec3(0, 0, 1)
+        top_ax = glm.vec3(0, 0, 1)
 
-        quats[qn['Body']]    = quat_from_two_vectors(Y_ax, v_body)
+        quats[qn['body']]    = quat_from_two_vectors(top_ax, v_body)
         quats[qn['rShldr']] = quat_from_two_vectors(v_rCol_rShl, v_rShl_rArm)
         quats[qn['rElbow']] = quat_from_two_vectors(v_rShl_rArm, v_rArm_rHnd)
         quats[qn['lShldr']] = quat_from_two_vectors(v_lCol_lShl, v_lShl_lArm)
