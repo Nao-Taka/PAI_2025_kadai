@@ -70,19 +70,35 @@ linkName2idx = {
 vecName2idx = {'foot':0, 'sune':1, 'momo':2, 'body':3}
 
 
-def init_pose(atlas_id):
+def init_pose(atlas_id, physicsClient):
     #atlasの姿勢の初期化　肩を閉じるなど
     p.setJointMotorControl2(bodyUniqueId=atlas_id, jointIndex=jointName2idx['l_arm_shx'],
-                            controlMode=p.POSITION_CONTROL, targetPosition= -math.pi/2)
+                            controlMode=p.POSITION_CONTROL, targetPosition= -math.pi/2
+                            , physicsClientId=physicsClient)
     p.setJointMotorControl2(bodyUniqueId=atlas_id, jointIndex=jointName2idx['r_arm_shx'],
-                            controlMode=p.POSITION_CONTROL, targetPosition=  math.pi/2)
+                            controlMode=p.POSITION_CONTROL, targetPosition=  math.pi/2
+                            , physicsClientId=physicsClient)
     p.setJointMotorControl2(bodyUniqueId=atlas_id, jointIndex=jointName2idx['l_arm_elx'],
-                            controlMode=p.POSITION_CONTROL, targetPosition= 0)
+                            controlMode=p.POSITION_CONTROL, targetPosition= 0
+                            , physicsClientId=physicsClient)
     p.setJointMotorControl2(bodyUniqueId=atlas_id, jointIndex=jointName2idx['r_arm_elx'],
-                            controlMode=p.POSITION_CONTROL, targetPosition= 0)
-    
+                            controlMode=p.POSITION_CONTROL, targetPosition= 0
+                            , physicsClientId=physicsClient)
 
-def set_pose(atlas_id, motion):
+def init_pose_reset(atlas_id, physicsClient):
+    #atlasの姿勢の初期化　肩を閉じるなど
+    #Resetなので反動はないはず
+    p.resetJointState(bodyUniqueId=atlas_id, jointIndex=jointName2idx['l_arm_shx'],
+                            targetValue= -math.pi/2, physicsClientId=physicsClient)
+    p.resetJointState(bodyUniqueId=atlas_id, jointIndex=jointName2idx['r_arm_shx'],
+                            targetValue=  math.pi/2, physicsClientId=physicsClient)
+    p.resetJointState(bodyUniqueId=atlas_id, jointIndex=jointName2idx['l_arm_elx'],
+                            targetValue= 0, physicsClientId=physicsClient)
+    p.resetJointState(bodyUniqueId=atlas_id, jointIndex=jointName2idx['r_arm_elx'],
+                             targetValue= 0, physicsClientId=physicsClient)
+
+
+def set_pose(atlas_id, motion, physicsClient):
     def angle_between_2vec_onXZ(A:glm.vec3, B:glm.vec3): #xz平面においてA→Bの角度差を算出(x軸基準)
         A_x = A[0]
         A_z = A[2]
@@ -111,30 +127,37 @@ def set_pose(atlas_id, motion):
 
     #関節角度のセット
     p.setJointMotorControl2(bodyUniqueId=atlas_id, jointIndex=jointName2idx['l_leg_hpy'],
-                            controlMode=p.POSITION_CONTROL, targetPosition= -theta_hip)
+                            controlMode=p.POSITION_CONTROL, targetPosition= -theta_hip
+                            , physicsClientId=physicsClient)
     p.setJointMotorControl2(bodyUniqueId=atlas_id, jointIndex=jointName2idx['r_leg_hpy'],
-                            controlMode=p.POSITION_CONTROL, targetPosition= -theta_hip)
+                            controlMode=p.POSITION_CONTROL, targetPosition= -theta_hip
+                            , physicsClientId=physicsClient)
     p.setJointMotorControl2(bodyUniqueId=atlas_id, jointIndex=jointName2idx['l_leg_kny'],
-                            controlMode=p.POSITION_CONTROL, targetPosition= -theta_knee)
+                            controlMode=p.POSITION_CONTROL, targetPosition= -theta_knee
+                            , physicsClientId=physicsClient)
     p.setJointMotorControl2(bodyUniqueId=atlas_id, jointIndex=jointName2idx['r_leg_kny'],
-                            controlMode=p.POSITION_CONTROL, targetPosition= -theta_knee)
+                            controlMode=p.POSITION_CONTROL, targetPosition= -theta_knee
+                            , physicsClientId=physicsClient)
     p.setJointMotorControl2(bodyUniqueId=atlas_id, jointIndex=jointName2idx['l_leg_aky'],
-                            controlMode=p.POSITION_CONTROL, targetPosition= -theta_ancle)
+                            controlMode=p.POSITION_CONTROL, targetPosition= -theta_ancle
+                            , physicsClientId=physicsClient)
     p.setJointMotorControl2(bodyUniqueId=atlas_id, jointIndex=jointName2idx['r_leg_aky'],
-                            controlMode=p.POSITION_CONTROL, targetPosition= -theta_ancle)
+                            controlMode=p.POSITION_CONTROL, targetPosition= -theta_ancle
+                            , physicsClientId=physicsClient)
     
-def get_pose(atlas_id):
+def get_pose(atlas_id, physicsClient):
     '''
     現在のAtlasのリンク座標から体の向きベクトルを取得する
     '''
     ret = {}
     #各リンク座標の取得
-    num_joints = p.getNumJoints(atlas_id)
+    num_joints = p.getNumJoints(atlas_id, physicsClientId=physicsClient)
 
     positions = {}
     for link_index in range(num_joints):
-        info = p.getJointInfo(atlas_id, link_index)
-        link_state = p.getLinkState(atlas_id, link_index, computeForwardKinematics=True)
+        info = p.getJointInfo(atlas_id, link_index, physicsClientId=physicsClient)
+        link_state = p.getLinkState(atlas_id, link_index, computeForwardKinematics=True
+                                    , physicsClientId=physicsClient)
         pos = link_state[0]
 #       orn = link_state[1]
         link_name = info[12].decode("utf-8")  # 名前（bytes → str）
@@ -174,7 +197,7 @@ def get_pose(atlas_id):
     ret[vecName2idx['body']] =  glm.normalize(v_body)
     return ret
 
-def motion_viewer(motions:dict, body_occurrence_point:glm.vec3=glm.vec3(0,0,0)):
+def motion_viewer(motions:dict, physicsClient, body_occurrence_point:glm.vec3=glm.vec3(0,0,0)):
     '''
     モーションデータの可視化
     '''
@@ -196,7 +219,11 @@ def motion_viewer(motions:dict, body_occurrence_point:glm.vec3=glm.vec3(0,0,0)):
     def gV2ls(vec:glm.vec3):
         return [vec.x, vec.y, vec.z]
     
-    p.addUserDebugLine(gV2ls(p_heel), gV2ls(p_tue), lineColorRGB=[1, 0, 0], lifeTime=0.99)
-    p.addUserDebugLine(gV2ls(p_heel), gV2ls(p_knee), lineColorRGB=[1, 0, 0], lifeTime=0.99)
-    p.addUserDebugLine(gV2ls(p_knee), gV2ls(p_hip), lineColorRGB=[1, 0, 0], lifeTime=0.99)
-    p.addUserDebugLine(gV2ls(p_hip), gV2ls(p_neck), lineColorRGB=[1, 0, 0], lifeTime=0.99)
+    p.addUserDebugLine(gV2ls(p_heel), gV2ls(p_tue), lineColorRGB=[1, 0, 0], lifeTime=0.99
+                       , physicsClientId=physicsClient)
+    p.addUserDebugLine(gV2ls(p_heel), gV2ls(p_knee), lineColorRGB=[1, 0, 0], lifeTime=0.99
+                       , physicsClientId=physicsClient)
+    p.addUserDebugLine(gV2ls(p_knee), gV2ls(p_hip), lineColorRGB=[1, 0, 0], lifeTime=0.99
+                       , physicsClientId=physicsClient)
+    p.addUserDebugLine(gV2ls(p_hip), gV2ls(p_neck), lineColorRGB=[1, 0, 0], lifeTime=0.99
+                       , physicsClientId=physicsClient)

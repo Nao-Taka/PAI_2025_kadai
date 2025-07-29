@@ -1,6 +1,11 @@
-import copy
-import time
+'''
+Atlasのモーションの強化学習に必要な環境構成
+およびコールバック関数を定義
+'''
+
 from datetime import datetime
+import time
+import os
 import pytz
 
 import numpy as np
@@ -18,13 +23,18 @@ from stable_baselines3 import PPO
 from stable_baselines3.common.callbacks import EvalCallback, BaseCallback, CallbackList
 from stable_baselines3.common.env_checker import check_env
 
-from motion_controller import set_pose, get_pose, init_pose
 from Bullet_util import saveMovie
+from motion_controller import set_pose, get_pose, init_pose, init_pose_reset
 
 atlas_path = 'pybullet_robots/data/atlas_add_footsensor/atlas_v4_with_multisense.urdf'
 
+'''
+is_direct=Trueで環境を起動
+直立以外のポーズを行う場合はset_poseでセットする
+学習を開始
+'''
 class AtlasEnv(gym.Env):
-    def __init__(self, is_direct=True, render_mode=None):
+    def __init__(self, is_direct=True, render_mode=None, history_length=3):
         super().__init__()
         #クラス特有の初期化
         self.render_mode = render_mode
@@ -41,11 +51,11 @@ class AtlasEnv(gym.Env):
         p.setAdditionalSearchPath(pybullet_data.getDataPath(), physicsClientId=self.physicsClient)
         self.floor_id = p.loadURDF("plane.urdf", physicsClientId=self.physicsClient)
         self.atlas_id = p.loadURDF(atlas_path, self.atlas_init_pos, physicsClientId=self.physicsClient)
-        init_pose(self.atlas_id, self.physicsClient)
+        init_pose_reset(self.atlas_id, self.physicsClient)
     
 
         # 観測空間（例：過去3フレームの姿勢＋次の予定姿勢）
-        self.history_length = 3
+        self.history_length = history_length
         self.vec_dim = 4 * 3  # foot, sune, momo, body の各ベクトル（3次元）×4
         obs_dim = (self.history_length + 1) * self.vec_dim
         self.observation_space = spaces.Box(low=-1.0, high=1.0, shape=(obs_dim,), dtype=np.float32)
@@ -60,19 +70,25 @@ class AtlasEnv(gym.Env):
 
         # 姿勢履歴・目標姿勢の保存
         self.past_poses = [{0:glm.vec3(0, 0, 1), 1:glm.vec3(0, 0, 1),
-                             2:glm.vec3(0, 0, 1), 3:glm.vec3(0, 0, 1)},
-                           {0:glm.vec3(0, 0, 1), 1:glm.vec3(0, 0, 1),
-                             2:glm.vec3(0, 0, 1), 3:glm.vec3(0, 0, 1)},
-                           {0:glm.vec3(0, 0, 1), 1:glm.vec3(0, 0, 1),
-                             2:glm.vec3(0, 0, 1), 3:glm.vec3(0, 0, 1)},
-                           ]  # 過去3ステップ分
+                             2:glm.vec3(0, 0, 1), 3:glm.vec3(0, 0, 1)}
+                             for _ in range(self.history_length)]  # 過去nステップ分
 
         #目標の姿勢        
         self.target_pose = []
         for i in range(1000):
             self.target_pose.append({0:glm.vec3(0, 0, 1), 1:glm.vec3(0, 0, 1),
                                     2:glm.vec3(0, 0, 1), 3:glm.vec3(0, 0, 1)})
-        
+            
+    def set_pose(self, motions):
+        '''
+        [{0:glm.vec3(0, 0, 1), 1:glm.vec3(0, 0, 1),
+        2:glm.vec3(0, 0, 1), 3:glm.vec3(0, 0, 1)},
+        ]
+        の形式でリストを渡す
+        '''
+        self.target_pose = motions
+        self.max_step = len(motions)
+    
     def reset(self, seed=None, options=None):
         # p.resetSimulation()
         # self.floor_id = p.loadURDF("plane.urdf")
@@ -80,16 +96,12 @@ class AtlasEnv(gym.Env):
         self.__reset(self.atlas_init_pos)
         p.setGravity(0, 0, -9.8, physicsClientId=self.physicsClient)
         p.setTimeStep(1.0 / 100, physicsClientId=self.physicsClient)
-        init_pose(self.atlas_id, self.physicsClient)
+        init_pose_reset(self.atlas_id, self.physicsClient)
         self.current_step = 0
 
         self.past_poses = [{0:glm.vec3(0, 0, 1), 1:glm.vec3(0, 0, 1),
-                             2:glm.vec3(0, 0, 1), 3:glm.vec3(0, 0, 1)},
-                           {0:glm.vec3(0, 0, 1), 1:glm.vec3(0, 0, 1),
-                             2:glm.vec3(0, 0, 1), 3:glm.vec3(0, 0, 1)},
-                           {0:glm.vec3(0, 0, 1), 1:glm.vec3(0, 0, 1),
-                             2:glm.vec3(0, 0, 1), 3:glm.vec3(0, 0, 1)},
-                           ]  # 過去3ステップ分
+                             2:glm.vec3(0, 0, 1), 3:glm.vec3(0, 0, 1)}
+                             for _ in range(self.history_length)]  # 過去nステップ分
         next_pose = self.target_pose[0]
         obs = self.__create_next_observationSpace(self.past_poses, next_pose)
 
@@ -155,23 +167,6 @@ class AtlasEnv(gym.Env):
             return True
         elif self.render_mode=='rgb_array':
             width, height = 960, 720
-            # view_matrix = p.computeViewMatrix(
-            #     cameraEyePosition=[10, 10, -15],      # カメラの位置
-            #     cameraTargetPosition=[0, 0, 0],  # 注視点
-            #     cameraUpVector=[0, 0, 1]                       # 上方向（Z軸が上）
-            #     , physicsClientId=self.physicsClient
-            # )
-            
-            # width, height, px, _, _ = p.getCameraImage(width=width,
-            #                                             height=height,
-            #                                             viewMatrix=view_matrix
-            #                                             # projectionMatrix=proj_matrix
-            #                                             # ,renderer=p.ER_TINY_RENDERER
-            #                                             ,physicsClientId=self.physicsClient
-            #                                             )
-            #view_matrixだとカメラ位置がーx方向の遠方となってしまった
-            ##########################################################################
-            #
             p.resetDebugVisualizerCamera(cameraDistance=2,
                                          cameraYaw=45,
                                          cameraPitch=-30,
@@ -214,16 +209,11 @@ class AtlasEnv(gym.Env):
 
         ret = []
 
-        #次のモーションを取得
-        # next_motion = next_pose
-        # current_pose_and_next_motion = copy.deepcopy(pose_histry)
-        # current_pose_and_next_motion.append(next_motion)
-
         #これまでの姿勢たちをリストに変形
         #1つのモーションにつき0~3でインデクスされた辞書であり
         #1つの要素につきglm.vec3であるのでそれぞれをListに変形
-        for motion in pose_histry: #current_pose_and_next_motion:
-            #過去3ステップの姿勢について1ステップごとに処理
+        for motion in pose_histry:
+            #過去nステップの姿勢について1ステップごとに処理
             for vec in motion.values():
                 vec = glm.normalize(vec)
                 ret.append(list(vec))
@@ -280,15 +270,17 @@ class AtlasEnv(gym.Env):
 #独自処理のためのBasecallback継承クラス
 ##########################################
 class CustomCallback(BaseCallback):
-    def __init__(self, save_dirpath, render_interval=20, verbose=0):
+    def __init__(self, save_dirpath, render_interval=100, model_save_interval=100,verbose=0):
         '''
         render_intervalのエピソード毎に保存する
         '''
         super().__init__(self)
         self.save_dirpath = save_dirpath
         self.render_interval = render_interval
-
-        self.model_save_interval = 100
+        self.model_save_interval = model_save_interval
+        #保存用フォルダの作成
+        os.makedirs(f'{self.save_dirpath}movie/', exist_ok=True)
+        os.makedirs(f'{self.save_dirpath}models/', exist_ok=True)
 
         self.n_episode = 0
         self.is_first_of_episode = False
@@ -298,9 +290,6 @@ class CustomCallback(BaseCallback):
     def _on_step(self):
         #何ステップ続いたかをスコアリング
         self.howlong_score += 1
-
-
-
 
         dones = self.locals['dones']
         if any(dones):
@@ -355,53 +344,40 @@ class CustomCallback(BaseCallback):
         cprint('on training stard called', 'red')
     
 
-
-#####################
-#実行環境
-#####################
-
-total_timesteps = 1_000_000
-    
-env = AtlasEnv(is_direct=True, render_mode='rgb_array')
+if __name__=='__main__':
+    #####################
+    #実行環境
+    #####################
+    total_timesteps = 1_000_000
+    env = AtlasEnv(is_direct=True, render_mode='rgb_array')
     # check_env(env)
 
+    # ログ出力用ディレクトリの設定
+    now_str = datetime.now(pytz.timezone('Asia/Tokyo')).strftime("%Y%m%d_%H%M%S")
+    log_path = f"./logs/run1_{now_str}/"
 
+    #####################
+    #コールバック関係の処理
+    #####################
 
-# ログ出力用ディレクトリの設定
-now_str = datetime.now(pytz.timezone('Asia/Tokyo')).strftime("%Y%m%d_%H%M%S")
-log_path = f"./logs/run1_{now_str}/"
-
-#####################
-#コールバック関係の処理
-#####################
-
-
-
-# 環境の評価とログ出力を行うコールバック
-eval_callback = EvalCallback(env,
+    # 環境の評価とログ出力を行うコールバック
+    eval_callback = EvalCallback(env,
                              best_model_save_path=log_path,
                              log_path=log_path, eval_freq=10000,
                              deterministic=True, render=False)
 
+    custom_calback = CustomCallback(save_dirpath=log_path, render_interval=100)
 
-custom_calback = CustomCallback(save_dirpath=log_path, render_interval=100)
-
-calbacks = CallbackList([eval_callback,
+    calbacks = CallbackList([eval_callback,
                         custom_calback])
 
-model = PPO('MlpPolicy', env, verbose=1)
+    model = PPO('MlpPolicy', env, verbose=1)
 
-from stable_baselines3.common.logger import configure
-new_logger = configure(log_path, ["stdout", "csv"])  # CSV出力！
-model.set_logger(new_logger)
+    from stable_baselines3.common.logger import configure
+    new_logger = configure(log_path, ["stdout", "csv"])  # CSV出力！
+    model.set_logger(new_logger)
 
-model.learn(total_timesteps=total_timesteps, log_interval=10, 
-            callback=calbacks, progress_bar=True)
+    model.learn(total_timesteps=total_timesteps, log_interval=10, 
+                callback=calbacks, progress_bar=True)
 
-
-
-model.save('atlas_rl_model_standing')
-# obs, _ = env.reset()
-# for _ in range(1000):
-#     action, _ = model.predict()
-#     obs, reward, done, truncated, info = env.step(action)
+    model.save('atlas_rl_model_standing')
